@@ -1,0 +1,4 @@
+<resources>
+    <!-- Push notification accent (the app's primary blue) -->
+    <color name="notification_accent">#1A85FF</color>
+</resources>

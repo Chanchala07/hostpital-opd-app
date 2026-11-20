@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "117150085453",
+    "project_id": "book-doctor-d3dbc",
+    "storage_bucket": "book-doctor-d3dbc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:117150085453:android:cab64ed63fb8440f548704",
+        "android_client_info": {
+          "package_name": "com.hospitalopdapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBV-MWjMTN-iaTaFUjAarRNYMsjp8HRpfk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
