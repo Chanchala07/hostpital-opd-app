@@ -13,7 +13,10 @@
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
-      <!-- Small icon for push notifications (white bell; Android tints it) -->
+      <!-- Small icon for push notifications (white bell; Android tints it).
+           The tint comes with each push from the server. Don't add
+           default_notification_color here: the Firebase library declares it
+           (from firebase.json "messaging_android_notification_color"). -->
       <meta-data
         android:name="com.google.firebase.messaging.default_notification_icon"
         android:resource="@drawable/ic_notification" />
