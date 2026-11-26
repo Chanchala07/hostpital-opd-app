@@ -1,5 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -10,23 +18,24 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
-  History,
-  List,
-  PenLine,
-  Plus,
-  Printer,
-  type LucideIcon,
+  // Hidden for now: the card actions and the + (add patient) button below.
+  // History,
+  // List,
+  // PenLine,
+  // Plus,
+  // Printer,
+  // type LucideIcon,
 } from 'lucide-react-native';
 import { getMyDoctors, type MyDoctors } from '../../api/myDoctors';
 import { searchPatients, type RegisteredPatient } from '../../api/patients';
-import { getQueue } from '../../api/queue';
+import { checkIn, getQueue } from '../../api/queue';
 import Avatar from '../../components/Avatar';
 import { FilterChips, SearchBox, Tag } from '../../components/ListControls';
 import { ErrorView, LoadingView } from '../../components/LoadStates';
 import { avatarPalette, colors } from '../../theme/colors';
 import { appInForeground } from '../../utils/appState';
 import { userMessage } from '../../utils/errors';
-import { comingSoon } from '../../utils/format';
+// import { comingSoon } from '../../utils/format'; // card actions, hidden for now
 import { shortDoctorName } from '../assistant/deskModel';
 import {
   formatIsoDate,
@@ -51,7 +60,10 @@ type Props = {
   /** Shown in the subtitle, e.g. "Desk 1". Defaults to the doctor's room. */
   place?: string;
   onBack: () => void;
-  /** Opens "Add new patient"; the + button is hidden without it. */
+  /**
+   * Opens "Add new patient". Not used for now: the + button is commented out
+   * below; un-comment it to bring it back.
+   */
   onAddPatient?: () => void;
   /** Subscribes to the screen gaining focus (e.g. back from Add patient). */
   onFocus?: (callback: () => void) => () => void;
@@ -90,34 +102,36 @@ const FILTERS: {
   { key: 'seen', label: 'Seen', match: p => p.status === 'seen' },
 ];
 
-const ACTIONS: {
-  key: string;
-  label: string;
-  feature: string;
-  icon: LucideIcon;
-  highlight?: boolean;
-}[] = [
-  {
-    key: 'edit',
-    label: 'Edit details',
-    feature: 'Edit details',
-    icon: PenLine,
-  },
-  {
-    key: 'rx-list',
-    label: 'Rx list',
-    feature: 'Prescription list',
-    icon: List,
-  },
-  {
-    key: 'last-rx',
-    label: 'Last Rx',
-    feature: 'Print last prescription',
-    icon: Printer,
-    highlight: true,
-  },
-  { key: 'history', label: 'History', feature: 'Visit history', icon: History },
-];
+// Card actions, hidden for now (also un-comment the action row in PatientCard
+// and the icon / comingSoon imports above).
+// const ACTIONS: {
+//   key: string;
+//   label: string;
+//   feature: string;
+//   icon: LucideIcon;
+//   highlight?: boolean;
+// }[] = [
+//   {
+//     key: 'edit',
+//     label: 'Edit details',
+//     feature: 'Edit details',
+//     icon: PenLine,
+//   },
+//   {
+//     key: 'rx-list',
+//     label: 'Rx list',
+//     feature: 'Prescription list',
+//     icon: List,
+//   },
+//   {
+//     key: 'last-rx',
+//     label: 'Last Rx',
+//     feature: 'Print last prescription',
+//     icon: Printer,
+//     highlight: true,
+//   },
+//   { key: 'history', label: 'History', feature: 'Visit history', icon: History },
+// ];
 
 /** Same person → same colour, so avatars don't shuffle as the list changes. */
 function avatarColorsFor(name: string, seen = false) {
@@ -136,7 +150,7 @@ export default function PatientListScreen({
   viewer,
   place,
   onBack,
-  onAddPatient,
+  // onAddPatient, // + button hidden for now
   onFocus,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -145,6 +159,8 @@ export default function PatientListScreen({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
   const [registry, setRegistry] = useState<Registry>({ status: 'idle' });
+  /** The patient being checked in (one at a time). */
+  const [checkingIn, setCheckingIn] = useState<number | null>(null);
   const mine = useRef<MyDoctors | null>(null);
   const mounted = useRef(true);
   /** Only the newest request may update the screen. */
@@ -212,6 +228,27 @@ export default function PatientListScreen({
     await fetchPatients(true);
     if (mounted.current) {
       setRefreshing(false);
+    }
+  };
+
+  /**
+   * Doctor: the patient has arrived → waiting. A late patient is placed by
+   * the clinic's late-arrival rule (the server decides).
+   */
+  const checkInPatient = async (p: TodayPatient) => {
+    if (checkingIn !== null) {
+      return;
+    }
+    setCheckingIn(p.appointmentId);
+    try {
+      await checkIn(p.appointmentId);
+    } catch (e) {
+      Alert.alert('Could not check in', userMessage(e, 'Please try again.'));
+    } finally {
+      await fetchPatients(true);
+      if (mounted.current) {
+        setCheckingIn(null);
+      }
     }
   };
 
@@ -298,6 +335,7 @@ export default function PatientListScreen({
                 .join(' · ')}
             </Text>
           </View>
+          {/* Add patient (+), hidden for now:
           {onAddPatient ? (
             <Pressable
               testID="add-patient"
@@ -312,6 +350,7 @@ export default function PatientListScreen({
               <Plus size={22} color={colors.white} strokeWidth={2.5} />
             </Pressable>
           ) : null}
+          */}
         </View>
 
         {load.status === 'ready' ? (
@@ -351,7 +390,20 @@ export default function PatientListScreen({
           data={visible}
           keyExtractor={p => String(p.appointmentId)}
           renderItem={({ item }) => (
-            <PatientCard patient={item} viewer={viewer} />
+            <PatientCard
+              patient={item}
+              viewer={viewer}
+              checkIn={
+                // The desk checks in from its Tokens screen.
+                viewer === 'doctor' && item.status === 'not_arrived'
+                  ? {
+                      busy: checkingIn === item.appointmentId,
+                      disabled: checkingIn !== null,
+                      onPress: () => checkInPatient(item),
+                    }
+                  : undefined
+              }
+            />
           )}
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
@@ -386,9 +438,12 @@ export default function PatientListScreen({
 function PatientCard({
   patient: p,
   viewer,
+  checkIn: checkInButton,
 }: {
   patient: TodayPatient;
   viewer: PatientListViewer;
+  /** "Check in" on a patient who hasn't arrived yet. */
+  checkIn?: { busy: boolean; disabled: boolean; onPress: () => void };
 }) {
   const inRoom = p.status === 'in_room';
   const seen = p.status === 'seen';
@@ -465,6 +520,31 @@ function PatientCard({
         ) : null}
       </View>
 
+      {checkInButton ? (
+        <Pressable
+          testID={`check-in-${p.appointmentId}`}
+          onPress={checkInButton.onPress}
+          disabled={checkInButton.disabled}
+          style={({ pressed }) => [
+            styles.checkInButton,
+            (pressed || checkInButton.disabled) && styles.pressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={`Check in ${p.token} ${p.name}`}
+          accessibilityState={{
+            disabled: checkInButton.disabled,
+            busy: checkInButton.busy,
+          }}
+        >
+          {checkInButton.busy ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <Text style={styles.checkInText}>Check in</Text>
+          )}
+        </Pressable>
+      ) : null}
+
+      {/* Edit details · Rx list · Last Rx · History, hidden for now:
       <View style={styles.divider} />
 
       <View style={styles.actions}>
@@ -491,6 +571,7 @@ function PatientCard({
           );
         })}
       </View>
+      */}
     </View>
   );
 }
@@ -661,6 +742,18 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 10,
   },
+  // Same look as the desk's "Check in" (assistant Tokens screen).
+  checkInButton: {
+    marginTop: 12,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkInText: { fontSize: 15, fontWeight: '600', color: colors.primary },
   divider: { height: 1, backgroundColor: colors.border, marginVertical: 12 },
   actions: { flexDirection: 'row', gap: 8 },
   actionTile: {

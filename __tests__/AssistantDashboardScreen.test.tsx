@@ -70,7 +70,12 @@ afterEach(async () => {
 const renderDesk = () =>
   mount(
     <AuthContext.Provider
-      value={{ user: assistant, signIn: jest.fn(), signOut: jest.fn() }}
+      value={{
+        user: assistant,
+        signIn: jest.fn(),
+        signUp: jest.fn(),
+        signOut: jest.fn(),
+      }}
     >
       <AssistantDeskProvider>
         <AssistantDashboardScreen

@@ -18,6 +18,7 @@ jest.mock('../src/api/queue', () => ({
   getVisitId: jest.fn(),
   completeVisit: jest.fn(),
   setAvailability: jest.fn(),
+  checkIn: jest.fn(),
 }));
 
 const api = queueApi as unknown as Record<string, jest.Mock>;
@@ -67,7 +68,12 @@ async function renderHome() {
   const navigate = jest.fn();
   const s = await mount(
     <AuthContext.Provider
-      value={{ user: doctor, signIn: jest.fn(), signOut: jest.fn() }}
+      value={{
+        user: doctor,
+        signIn: jest.fn(),
+        signUp: jest.fn(),
+        signOut: jest.fn(),
+      }}
     >
       <DoctorDashboardScreen
         navigation={{ navigate, addListener: () => () => {} } as never}
@@ -97,7 +103,42 @@ test("shows today's live queue: patient inside, stats and the line", async () =>
   expect(s.textIn('up-next-13')).toMatch(
     /A-13[\s\S]*est\. 10:40 AM[\s\S]*Next/,
   );
-  expect(s.textIn('up-next-14')).toContain('Not arrived');
+  // Not arrived yet: the doctor can check them in from here.
+  expect(s.textIn('up-next-14')).toContain('Check in');
+  expect(s.exists('check-in-14')).toBe(true);
+  expect(s.exists('check-in-13')).toBe(false); // already waiting
+});
+
+test('"Check in" on Up next: the patient arrives and joins the waiting line', async () => {
+  const s = await renderHome();
+  const arrived = johnsonQueue();
+  arrived.line = arrived.line.map(e =>
+    e.id === 14 ? { ...e, status: 'checked_in', arrived: true } : e,
+  );
+  api.checkIn.mockResolvedValue({ data: {}, message: 'Checked in' });
+  api.getQueue.mockResolvedValue(arrived);
+
+  await s.press('check-in-14');
+  expect(api.checkIn).toHaveBeenCalledWith(14);
+  expect(api.getQueue).toHaveBeenCalledTimes(2); // refreshed after
+  expect(s.exists('check-in-14')).toBe(false);
+  expect(s.textIn('up-next-14')).toContain('Waiting');
+});
+
+test('a failed check-in says why and keeps the button', async () => {
+  const { ApiError } = jest.requireActual('../src/api/client');
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  api.checkIn.mockRejectedValue(
+    new ApiError('Only on the appointment day', 400, 'NOT_TODAY'),
+  );
+  const s = await renderHome();
+  await s.press('check-in-14');
+  expect(alert).toHaveBeenCalledWith(
+    'Could not update',
+    'Only on the appointment day',
+  );
+  expect(s.exists('check-in-14')).toBe(true);
+  alert.mockRestore();
 });
 
 test('finishing a visit needs a diagnosis, then completes and calls next', async () => {

@@ -10,7 +10,7 @@ export default function SignOutButton() {
   const confirm = () =>
     Alert.alert(
       'Sign out?',
-      "You'll need your email and password to sign in again.",
+      "You'll need your mobile number and password to sign in again.",
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Sign out', style: 'destructive', onPress: signOut },

@@ -48,15 +48,15 @@ const post = (path: string, body: object) =>
   apiRequest<LoginResponse>(path, { method: 'POST', body, auth: false });
 
 /**
- * Signs in with email + password and returns the app user. Staff use
- * /auth/login; a patient's account is refused there, so it is retried
- * with /auth/patient/login.
+ * Signs in with mobile number (10 digits) + password and returns the app
+ * user. /auth/login signs in every role by mobile number; if a backend
+ * refuses a patient there, it is retried with /auth/patient/login.
  */
-export async function login(email: string, password: string): Promise<User> {
+export async function login(mobile: string, password: string): Promise<User> {
   let result: LoginResponse;
   try {
     result = await post('/auth/login', {
-      login: email,
+      login: mobile,
       password,
       deviceName: DEVICE_NAME,
     });
@@ -69,7 +69,7 @@ export async function login(email: string, password: string): Promise<User> {
     }
     try {
       result = await post('/auth/patient/login', {
-        email,
+        phone: mobile,
         password,
         deviceName: DEVICE_NAME,
       });
@@ -83,14 +83,56 @@ export async function login(email: string, password: string): Promise<User> {
           : staffError;
       throw error instanceof ApiError && error.code === 'INVALID_CREDENTIALS'
         ? new ApiError(
-            'Email or password is incorrect.',
+            'Mobile number or password is incorrect.',
             401,
             'INVALID_CREDENTIALS',
           )
         : error;
     }
   }
+  return startSession(result);
+}
 
+/** New patient account, as filled in on "Create your account". */
+export type PatientSignUp = {
+  fullName: string;
+  /** 10 digits, without +91: the sign-in ID. */
+  phone: string;
+  /** YYYY-MM-DD */
+  dateOfBirth: string;
+  gender: 'female' | 'male' | 'other';
+  email: string | null;
+  password: string;
+};
+
+/**
+ * Creates the patient's account and their own patient record, and signs in
+ * (POST /auth/patient/register, 201; it answers like /auth/patient/login).
+ * 409: ACCOUNT_EXISTS (the number has an account: sign in), PHONE_RESERVED
+ * (a staff number), EMAIL_TAKEN, PROFILE_TAKEN.
+ */
+export async function registerPatient(input: PatientSignUp): Promise<User> {
+  let result: LoginResponse;
+  try {
+    result = await post('/auth/patient/register', {
+      ...input,
+      deviceName: DEVICE_NAME,
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      throw new ApiError(
+        "Creating an account isn't available yet. Please ask the hospital desk to register you.",
+        404,
+        'SIGN_UP_UNAVAILABLE',
+      );
+    }
+    throw error;
+  }
+  return startSession(result);
+}
+
+/** Keeps the tokens of a sign-in and returns the app user. */
+async function startSession(result: LoginResponse): Promise<User> {
   const role = APP_ROLES[result.user.role];
   if (!role) {
     // Valid account, but this app has no screens for it: end that session.
@@ -109,7 +151,7 @@ export async function login(email: string, password: string): Promise<User> {
   return {
     id: String(result.user.id),
     name: result.user.fullName,
-    email: result.user.email ?? email,
+    email: result.user.email,
     mobile: toMobile(result.user.phone),
     role,
   };

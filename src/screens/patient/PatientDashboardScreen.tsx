@@ -13,10 +13,8 @@ import type { CompositeScreenProps } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  Bell,
   CalendarPlus,
   ChevronRight,
-  CircleCheck,
   Clock,
   FileText,
   Pill,
@@ -34,7 +32,6 @@ import type {
 import { colors } from '../../theme/colors';
 import { comingSoon } from '../../utils/format';
 import { toIsoDate } from './bookingHelpers';
-import { getPatientDashboard, type Prescription } from './mockPatientDashboard';
 import MyAppointmentCard from './MyAppointmentCard';
 import { tokenView } from './myTokenHelpers';
 import { usePatientVisits } from './usePatientVisits';
@@ -44,7 +41,6 @@ type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackParamList>
 >;
 
-const VISIBLE_MEDICINE_CHIPS = 2;
 /** Upcoming visits shown on the home screen (the rest under "See all"). */
 const UPCOMING_SHOWN = 2;
 
@@ -52,8 +48,6 @@ export default function PatientDashboardScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { unreadCount } = useNotifications();
-  // Medicines, last prescription and health are still sample data.
-  const [data, setData] = useState(getPatientDashboard);
   const onFocus = useCallback(
     (cb: () => void) => navigation.addListener('focus', cb),
     [navigation],
@@ -62,8 +56,6 @@ export default function PatientDashboardScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = useState(false);
 
   const name = user?.name ?? 'Patient';
-  const nextMedicine = data.medicines[0];
-  const { health } = data;
   const upcoming = visits.status === 'ready' ? visits.upcoming : [];
   const today = visits.status === 'ready' ? visits.today : null;
 
@@ -72,9 +64,6 @@ export default function PatientDashboardScreen({ navigation }: Props) {
     await refresh();
     setRefreshing(false);
   };
-
-  const markMedicineTaken = () =>
-    setData(d => ({ ...d, medicines: d.medicines.slice(1) }));
 
   return (
     <View style={styles.screen}>
@@ -176,46 +165,6 @@ export default function PatientDashboardScreen({ navigation }: Props) {
             />
           </View>
 
-          {/* Medicine reminder */}
-          <View style={[styles.card, styles.medicineCard]}>
-            {nextMedicine ? (
-              <>
-                <View style={[styles.medicineIcon, styles.medicineIconDue]}>
-                  <Bell size={20} color={colors.purple} />
-                </View>
-                <View style={styles.flex}>
-                  <Text style={styles.mutedSmall}>
-                    {`Next medicine · ${nextMedicine.time}`}
-                  </Text>
-                  <Text style={styles.medicineName}>{nextMedicine.name}</Text>
-                </View>
-                <Pressable
-                  testID="mark-taken"
-                  style={({ pressed }) => [
-                    styles.outlineButton,
-                    pressed && styles.pressed,
-                  ]}
-                  onPress={markMedicineTaken}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.outlineButtonText}>Mark taken</Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <View style={[styles.medicineIcon, styles.medicineIconDone]}>
-                  <CircleCheck size={20} color={colors.success} />
-                </View>
-                <View style={styles.flex}>
-                  <Text style={styles.medicineName}>All done for today</Text>
-                  <Text style={styles.mutedSmall}>
-                    No more medicines due today.
-                  </Text>
-                </View>
-              </>
-            )}
-          </View>
-
           {/* Upcoming */}
           <SectionHeader
             title="Upcoming"
@@ -252,31 +201,6 @@ export default function PatientDashboardScreen({ navigation }: Props) {
               </Pressable>
             </View>
           )}
-
-          {/* Last prescription */}
-          <SectionHeader
-            title="Last prescription"
-            actionLabel="View"
-            onAction={() => navigation.navigate('Prescriptions')}
-          />
-          {data.lastPrescription ? (
-            <PrescriptionCard prescription={data.lastPrescription} />
-          ) : (
-            <Text style={styles.mutedText}>No prescriptions yet.</Text>
-          )}
-
-          {/* Health summary */}
-          <View style={styles.healthRow}>
-            <HealthTile label="Blood" value={health.bloodGroup} />
-            <HealthTile label="Weight" value={`${health.weightKg} kg`} />
-            <HealthTile
-              label="Allergy"
-              value={
-                health.allergies.length ? health.allergies.join(', ') : 'None'
-              }
-              alert={health.allergies.length > 0}
-            />
-          </View>
         </View>
       </ScrollView>
 
@@ -439,59 +363,6 @@ function SectionHeader({
   );
 }
 
-function PrescriptionCard({ prescription }: { prescription: Prescription }) {
-  const shown = prescription.medicines.slice(0, VISIBLE_MEDICINE_CHIPS);
-  const hidden = prescription.medicines.length - shown.length;
-
-  return (
-    <View style={styles.card}>
-      <View style={styles.rowBetween}>
-        <Text style={styles.cardTitle}>{prescription.diagnosis}</Text>
-        <Text style={styles.mutedSmall}>{prescription.date}</Text>
-      </View>
-      <Text style={[styles.mutedSmall, styles.rxMeta]}>
-        {`${prescription.doctorName} · ${prescription.id}`}
-      </Text>
-      <View style={styles.chipRow}>
-        {shown.map(medicine => (
-          <View key={medicine} style={styles.chip}>
-            <Text style={styles.chipText}>{medicine}</Text>
-          </View>
-        ))}
-        {hidden > 0 ? (
-          <View style={styles.chip}>
-            <Text style={styles.chipText}>{`+${hidden} more`}</Text>
-          </View>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-function HealthTile({
-  label,
-  value,
-  alert = false,
-}: {
-  label: string;
-  value: string;
-  alert?: boolean;
-}) {
-  return (
-    <View style={[styles.healthTile, alert && styles.healthTileAlert]}>
-      <Text style={[styles.healthLabel, alert && styles.healthLabelAlert]}>
-        {label}
-      </Text>
-      <Text
-        style={[styles.healthValue, alert && styles.healthValueAlert]}
-        numberOfLines={1}
-      >
-        {value}
-      </Text>
-    </View>
-  );
-}
-
 const RADIUS = 16;
 
 const styles = StyleSheet.create({
@@ -599,81 +470,10 @@ const styles = StyleSheet.create({
   },
   quickLabel: { fontSize: 12, fontWeight: '500', color: colors.text },
 
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: RADIUS,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 16,
-  },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: colors.text },
   mutedText: { fontSize: 14, color: colors.muted },
-  mutedSmall: { fontSize: 13, color: colors.muted },
-
-  // Medicine
-  medicineCard: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  medicineIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  medicineIconDue: { backgroundColor: colors.purpleSoft },
-  medicineIconDone: { backgroundColor: colors.successSoft },
-  medicineName: {
-    marginTop: 2,
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  outlineButton: {
-    borderWidth: 1,
-    borderColor: '#B9D8FF',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-  },
-  outlineButtonText: { fontSize: 14, fontWeight: '600', color: colors.primary },
 
   // Sections
   sectionHeader: { marginTop: 10 },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.navy },
   link: { fontSize: 14, fontWeight: '600', color: colors.primary },
-
-  // Prescription
-  rxMeta: { marginTop: 2 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  chip: {
-    backgroundColor: colors.primarySoft,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  chipText: { fontSize: 12, fontWeight: '500', color: colors.chipText },
-
-  // Health
-  healthRow: { flexDirection: 'row', gap: 10, marginTop: 6 },
-  healthTile: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  healthTileAlert: {
-    backgroundColor: colors.alertSoft,
-    borderColor: colors.alertBorder,
-  },
-  healthLabel: { fontSize: 12, color: colors.muted },
-  healthLabelAlert: { color: colors.alertLabel },
-  healthValue: {
-    marginTop: 4,
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  healthValueAlert: { color: colors.alertText },
 });

@@ -381,7 +381,7 @@ export default function AddStaffScreen({ onClose, onSaved }: Props) {
                 />
               </View>
             </Field>
-            <Field label="Email" required error={errors.email} id="email">
+            <Field label="Email" optional error={errors.email} id="email">
               <Input
                 testID="staff-email"
                 value={form.email}
@@ -395,7 +395,8 @@ export default function AddStaffScreen({ onClose, onSaved }: Props) {
               />
             </Field>
             <Text style={formStyles.hint}>
-              They get a link by SMS and email to set a password and sign in.
+              They get a link by SMS (and email, if you add one) to set a
+              password, then sign in with their mobile number.
             </Text>
           </Card>
 

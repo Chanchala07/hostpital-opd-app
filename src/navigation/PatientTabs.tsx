@@ -4,7 +4,7 @@ import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { Calendar, Clock, House, Pill } from 'lucide-react-native';
 import PlaceholderScreen from '../components/PlaceholderScreen';
 import PatientDashboardScreen from '../screens/patient/PatientDashboardScreen';
-import PrescriptionScreen from '../screens/patient/PrescriptionScreen';
+import MyPrescriptionsScreen from '../screens/patient/MyPrescriptionsScreen';
 import { colors } from '../theme/colors';
 import type { PatientTabParamList } from './types';
 
@@ -73,7 +73,7 @@ export default function PatientTabs() {
       />
       <Tab.Screen
         name="Prescriptions"
-        component={PrescriptionScreen}
+        component={MyPrescriptionsScreen}
         options={{ tabBarIcon: prescriptionsIcon }}
       />
     </Tab.Navigator>

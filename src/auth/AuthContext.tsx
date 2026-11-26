@@ -7,7 +7,12 @@ import React, {
   useState,
 } from 'react';
 import { Alert } from 'react-native';
-import { login, logout } from '../api/auth';
+import {
+  login,
+  logout,
+  registerPatient,
+  type PatientSignUp,
+} from '../api/auth';
 import { onSessionExpired } from '../api/client';
 import { stopPush } from '../notifications/push';
 import type { User } from './types';
@@ -15,7 +20,9 @@ import type { User } from './types';
 type AuthContextValue = {
   user: User | null;
   /** Throws an Error with a message to show when sign-in fails. */
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (mobile: string, password: string) => Promise<void>;
+  /** New patient: creates the account and signs in. Throws like signIn. */
+  signUp: (account: PatientSignUp) => Promise<void>;
   signOut: () => void;
 };
 
@@ -52,9 +59,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
-      signIn: async (email, password) => {
+      signIn: async (mobile, password) => {
         await signingOut.current; // the previous session ends first
-        setUser(await login(email, password));
+        setUser(await login(mobile, password));
+      },
+      signUp: async account => {
+        await signingOut.current;
+        setUser(await registerPatient(account));
       },
       signOut: () => {
         signedIn.current = false;

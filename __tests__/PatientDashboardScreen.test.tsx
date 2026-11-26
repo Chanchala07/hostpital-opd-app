@@ -49,7 +49,12 @@ async function renderHome() {
   const navigate = jest.fn();
   const s = await mount(
     <AuthContext.Provider
-      value={{ user: patient, signIn: jest.fn(), signOut: jest.fn() }}
+      value={{
+        user: patient,
+        signIn: jest.fn(),
+        signUp: jest.fn(),
+        signOut: jest.fn(),
+      }}
     >
       <PatientDashboardScreen
         navigation={{ navigate, addListener: () => () => {} } as never}
@@ -126,11 +131,25 @@ test('no visit today: offers to book; the rest still shows', async () => {
   expect(api.getMyAppointment).not.toHaveBeenCalled();
   expect(s.allText()).toContain('No visit today');
   expect(s.ids(/^my-appointment-/)).toEqual(['my-appointment-30']);
-  // Sample sections without an API yet.
+});
+
+test('no sample data: no medicine reminder, last prescription or health tiles', async () => {
+  const s = await renderHome();
   const text = s.allText();
-  expect(text).toContain('Fluticasone nasal spray');
-  expect(text).toContain('Viral fever');
-  expect(text).toContain('Penicillin');
+  for (const sample of [
+    'Next medicine',
+    'Mark taken',
+    'All done for today',
+    'Last prescription',
+    'Viral fever',
+    'Blood',
+    'Weight',
+    'Allergy',
+    'Penicillin',
+  ]) {
+    expect(text).not.toContain(sample);
+  }
+  expect(s.exists('mark-taken')).toBe(false);
 });
 
 test('load failure offers "Try again"', async () => {
@@ -142,12 +161,4 @@ test('load failure offers "Try again"', async () => {
   expect(s.textIn('visit-error')).toContain("Can't reach the server.");
   await s.press('visit-retry');
   expect(s.textIn('visit-token')).toBe('A-13');
-});
-
-test('"Mark taken" moves to the next medicine, then shows all done', async () => {
-  const s = await renderHome();
-  await s.press('mark-taken');
-  expect(s.allText()).toContain('Cetirizine 10 mg');
-  await s.press('mark-taken');
-  expect(s.allText()).toContain('All done for today');
 });

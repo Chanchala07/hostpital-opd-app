@@ -159,10 +159,10 @@ test('checks every doctor field before saving', async () => {
   await s.type('token-prefix', '');
   await s.press('submit-staff');
   expect(createStaff).not.toHaveBeenCalled();
+  expect(s.errorOf('email')).toBeUndefined(); // optional
   for (const key of [
     'fullName',
     'phone',
-    'email',
     'specialization',
     'qualification',
     'registrationNo',
@@ -262,6 +262,29 @@ test('adds an assistant with a desk and assigned doctors', async () => {
     assistant: { desk: 'Desk 2', doctorIds: [2] },
   });
   expect(s.onSaved).toHaveBeenCalledWith(CREATED, 'assistant');
+});
+
+test('email is optional: left out when empty, checked when given', async () => {
+  const s = await renderScreen();
+  await s.press('role-assistant');
+  await s.type('staff-name', 'Pooja Rane');
+  await s.type('staff-phone', '98123 45678');
+  await s.pick('desk', 'Desk 1');
+  await s.press('assign-doctor-2');
+
+  await s.type('staff-email', 'pooja@');
+  await s.press('submit-staff');
+  expect(s.errorOf('email')).toBe('Check the email address, or leave it empty.');
+  expect(createStaff).not.toHaveBeenCalled();
+
+  await s.type('staff-email', '  ');
+  await s.press('submit-staff');
+  expect(createStaff).toHaveBeenCalledWith({
+    role: 'assistant',
+    fullName: 'Pooja Rane',
+    phone: '9812345678',
+    assistant: { desk: 'Desk 1', doctorIds: [2] },
+  });
 });
 
 test('a taken email is shown on the email field', async () => {
