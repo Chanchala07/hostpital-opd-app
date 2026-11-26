@@ -35,7 +35,8 @@ export type OpdSession = {
   slotMinutes: number;
 };
 
-type Person = { fullName: string; phone: string; email: string };
+/** Email is optional: without it the invite goes by SMS. Everyone signs in with their mobile number. */
+type Person = { fullName: string; phone: string; email?: string };
 
 export type NewStaff =
   | (Person & {
@@ -57,7 +58,14 @@ export type NewStaff =
     });
 
 export type CreatedStaff = {
-  staff: { id: number; fullName: string; role: string };
+  staff: {
+    id: number;
+    fullName: string;
+    role: string;
+    /** Their sign-in ID when there is no email. */
+    employeeId?: string;
+    email?: string | null;
+  };
   invite: {
     channels: ('sms' | 'email')[];
     expiresAt: string;

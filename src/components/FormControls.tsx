@@ -8,6 +8,7 @@ import {
   TextInput,
   View,
   type StyleProp,
+  type TextInputInstance,
   type TextInputProps,
   type TextStyle,
   type ViewStyle,
@@ -101,10 +102,16 @@ export function Field({
 export function Input({
   invalid,
   style,
+  ref,
   ...rest
-}: TextInputProps & { invalid?: boolean }) {
+}: TextInputProps & {
+  invalid?: boolean;
+  /** To move the cursor here, e.g. from the previous field's "next" key. */
+  ref?: React.Ref<TextInputInstance>;
+}) {
   return (
     <TextInput
+      ref={ref}
       placeholderTextColor={colors.placeholder}
       textAlignVertical={rest.multiline ? 'top' : 'center'}
       {...rest}

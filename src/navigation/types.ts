@@ -2,6 +2,8 @@ import type { NavigatorScreenParams } from '@react-navigation/native';
 
 export type RootStackParamList = {
   Login: undefined;
+  /** Signed out: a new patient creates their account (one step). */
+  CreateAccount: undefined;
   DoctorApp: NavigatorScreenParams<DoctorTabParamList> | undefined;
   PatientApp: undefined;
   AssistantApp: NavigatorScreenParams<AssistantTabParamList> | undefined;
@@ -13,6 +15,8 @@ export type RootStackParamList = {
   TokenStatus: { appointmentId?: number } | undefined;
   /** Patient only: all my appointments (upcoming / past). */
   MyAppointments: { tab?: 'upcoming' | 'past' } | undefined;
+  /** Patient only: one prescription (the Prescriptions tab lists them all). */
+  Prescription: { prescriptionId: number };
   /** Doctor + assistant: register a new patient (covers the tab bar). */
   AddPatient: undefined;
   /** Doctor only: add a doctor or an assistant to the facility. */

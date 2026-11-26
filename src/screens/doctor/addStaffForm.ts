@@ -95,8 +95,9 @@ export function validateStaff(form: AddStaffForm): StaffErrors {
   if (!/^[6-9]\d{9}$/.test(form.phone)) {
     errors.phone = 'Enter a 10-digit mobile number.';
   }
-  if (!isValidEmail(form.email)) {
-    errors.email = 'Enter a valid email. It is used to sign in.';
+  // Optional: without an email the invite goes by SMS only (sign-in is by mobile number).
+  if (form.email.trim() && !isValidEmail(form.email)) {
+    errors.email = 'Check the email address, or leave it empty.';
   }
 
   if (form.role === 'doctor') {
@@ -153,7 +154,7 @@ export function toNewStaff(form: AddStaffForm): NewStaff {
   const person = {
     fullName: form.fullName.trim().replace(/\s+/g, ' '),
     phone: form.phone,
-    email: form.email.trim().toLowerCase(),
+    ...(form.email.trim() ? { email: form.email.trim().toLowerCase() } : {}),
   };
   if (form.role === 'assistant') {
     return {

@@ -3,6 +3,7 @@
  */
 
 import React from 'react';
+import { Alert } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { ApiError } from '../src/api/client';
 import * as patientsApi from '../src/api/patients';
@@ -23,7 +24,10 @@ import {
 } from '../test-utils/fixtures';
 import { flush, mount, pinDate, unmountAll } from '../test-utils/render';
 
-jest.mock('../src/api/queue', () => ({ getQueue: jest.fn() }));
+jest.mock('../src/api/queue', () => ({
+  getQueue: jest.fn(),
+  checkIn: jest.fn(),
+}));
 jest.mock('../src/api/patients', () => ({ searchPatients: jest.fn() }));
 jest.mock('../src/api/profile', () => ({
   ...jest.requireActual('../src/api/profile'),
@@ -31,6 +35,7 @@ jest.mock('../src/api/profile', () => ({
 }));
 
 const getQueue = queueApi.getQueue as jest.Mock;
+const checkIn = queueApi.checkIn as jest.Mock;
 const searchPatients = patientsApi.searchPatients as jest.Mock;
 const getMyProfile = profileApi.getMyProfile as jest.Mock;
 
@@ -44,7 +49,11 @@ function johnson(): QueueSnapshot {
           isOnline: false,
           source: 'desk',
           sourceLabel: 'OPD desk',
-          patient: { ...c.patient, patientCode: 'PT-20414', phone: '9800012345' },
+          patient: {
+            ...c.patient,
+            patientCode: 'PT-20414',
+            phone: '9800012345',
+          },
         }
       : c,
   );
@@ -79,6 +88,7 @@ beforeEach(() => {
     );
   getMyProfile.mockReset().mockResolvedValue(DOCTOR_ME);
   searchPatients.mockReset().mockResolvedValue([]);
+  checkIn.mockReset().mockResolvedValue({ data: {}, message: 'Checked in' });
 });
 
 afterEach(async () => {
@@ -88,7 +98,11 @@ afterEach(async () => {
 
 async function renderList(
   viewer: PatientListViewer,
-  extra: { place?: string; onFocus?: (cb: () => void) => () => void } = {},
+  extra: {
+    place?: string;
+    onFocus?: (cb: () => void) => () => void;
+    onAddPatient?: () => void;
+  } = {},
 ) {
   const onBack = jest.fn();
   const screen = await mount(
@@ -127,10 +141,6 @@ test('a doctor sees today’s patients from their queue: in room, line, then see
       'Last visit 12 Aug 2026 · Migraine',
       'In your room',
       'Online',
-      'Edit details',
-      'Rx list',
-      'Last Rx',
-      'History',
     ].join('\n'),
   );
   expect(s.textIn('patient-13')).toMatch(/Waiting\nWalk-in\nNew patient/);
@@ -139,7 +149,65 @@ test('a doctor sees today’s patients from their queue: in room, line, then see
     /Not arrived\nLate · 20 min\nOnline\nNew patient/,
   );
   expect(s.textIn('patient-10')).toContain('Seen');
-  expect(s.exists('add-patient')).toBe(false); // no handler → no + button
+});
+
+test('a doctor can check in patients who have not arrived (late ones too)', async () => {
+  const s = await renderList('doctor');
+  // A-14 and A-15 are booked, A-12 is late; A-11 is in the room, A-13 waits, A-10 is seen.
+  expect(s.ids(/^check-in-\d+$/)).toEqual([
+    'check-in-14',
+    'check-in-15',
+    'check-in-12',
+  ]);
+  expect(s.textIn('patient-14')).toMatch(/Not arrived[\s\S]*Check in$/);
+
+  // Checked in: the server moves A-14 to the waiting line.
+  getQueue.mockImplementation(async () => {
+    const q = johnson();
+    q.items = q.items.map(c =>
+      c.id === 14 ? { ...c, status: 'checked_in' as const } : c,
+    );
+    return q;
+  });
+  const before = getQueue.mock.calls.length;
+  await s.press('check-in-14');
+  expect(checkIn).toHaveBeenCalledWith(14);
+  expect(getQueue.mock.calls.length).toBe(before + 1);
+  expect(s.exists('check-in-14')).toBe(false);
+  expect(s.textIn('patient-14')).toContain('Waiting');
+});
+
+test('a failed check-in says why', async () => {
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  checkIn.mockRejectedValue(
+    new ApiError('Only on the appointment day', 400, 'NOT_TODAY'),
+  );
+  const s = await renderList('doctor');
+  await s.press('check-in-14');
+  expect(alert).toHaveBeenCalledWith(
+    'Could not check in',
+    'Only on the appointment day',
+  );
+  expect(s.exists('check-in-14')).toBe(true);
+  alert.mockRestore();
+});
+
+test('the desk’s Patients list has no check-in (it checks in from Tokens)', async () => {
+  getMyProfile.mockResolvedValue(ASSISTANT_ME);
+  const s = await renderList('assistant', { place: 'Desk 1' });
+  expect(s.ids(/^check-in-/)).toEqual([]);
+});
+
+test('card actions and the + (add patient) button are hidden for now', async () => {
+  const onAddPatient = jest.fn();
+  const s = await renderList('doctor', { onAddPatient });
+  expect(s.exists('add-patient')).toBe(false);
+  for (const action of ['edit', 'rx-list', 'last-rx', 'history']) {
+    expect(s.exists(`${action}-11`)).toBe(false);
+  }
+  for (const label of ['Edit details', 'Rx list', 'Last Rx', 'History']) {
+    expect(s.allText()).not.toContain(label);
+  }
 });
 
 test('filters and search narrow today’s list', async () => {
@@ -189,9 +257,12 @@ test('searching also lists other registered patients not booked today', async ()
   expect(s.cards()).toEqual(['13']);
   expect(s.ids(/^registered-/)).toEqual(['registered-500', 'registered-501']);
   expect(s.textIn('registered-500')).toBe(
-    ['PS', 'Priya Sharma', '29 F · PT-20500', '3 visits · last 2 Sep 2026'].join(
-      '\n',
-    ),
+    [
+      'PS',
+      'Priya Sharma',
+      '29 F · PT-20500',
+      '3 visits · last 2 Sep 2026',
+    ].join('\n'),
   );
   expect(s.textIn('registered-501')).toContain('No visits yet');
 

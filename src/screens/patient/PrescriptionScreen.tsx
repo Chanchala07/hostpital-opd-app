@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -7,93 +7,108 @@ import {
   Text,
   View,
 } from 'react-native';
-import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
-import type { CompositeScreenProps } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ArrowLeft, Download, Pill, Share2 } from 'lucide-react-native';
 import {
-  ArrowLeft,
-  Check,
-  Download,
-  Pill,
-  Share2,
-  TriangleAlert,
-} from 'lucide-react-native';
+  getMyPrescription,
+  type MyPrescriptionDetail,
+} from '../../api/myPrescriptions';
+import type { PrescriptionItem } from '../../api/visits';
 import Avatar from '../../components/Avatar';
-import type {
-  PatientTabParamList,
-  RootStackParamList,
-} from '../../navigation/types';
+import { ErrorView, LoadingView } from '../../components/LoadStates';
+import type { RootStackParamList } from '../../navigation/types';
 import { colors } from '../../theme/colors';
+import { userMessage } from '../../utils/errors';
+import { comingSoon, dateParts, formatShortDate } from '../../utils/format';
+import { doseLabel, parseFrequency } from '../doctor/prescriptionForm';
 import {
-  comingSoon,
-  dateParts,
-  formatShortDate,
-  isSameDay,
-} from '../../utils/format';
-import {
-  DOSE_TIMES,
-  getPrescription,
-  type DoseTime,
-  type PrescribedMedicine,
-  type Prescription,
-} from './mockPrescription';
+  dateOf,
+  isOngoing,
+  lastDoseDay,
+  longDate,
+} from './myPrescriptionHelpers';
 
-type Props = CompositeScreenProps<
-  BottomTabScreenProps<PatientTabParamList, 'Prescriptions'>,
-  NativeStackScreenProps<RootStackParamList>
->;
+type Props = NativeStackScreenProps<RootStackParamList, 'Prescription'>;
 
-const TINTS: Record<PrescribedMedicine['tint'], { bg: string; fg: string }> = {
-  blue: { bg: colors.primarySoft, fg: colors.primary },
-  purple: { bg: colors.purpleSoft, fg: colors.purple },
-  green: { bg: colors.successSoft, fg: colors.success },
-};
+type Load =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; rx: MyPrescriptionDetail };
 
-/** "1-0-1" — the usual way doses are written on Indian prescriptions. */
-const doseCode = (m: PrescribedMedicine) =>
-  DOSE_TIMES.map(t => m.doses[t.key]).join('-');
+const DOSE_TIMES = ['Morning', 'Afternoon', 'Night'];
 
-function shareText(rx: Prescription): string {
-  const { day, month } = dateParts(new Date(rx.visitDate));
+const TINTS = [
+  { bg: colors.primarySoft, fg: colors.primary },
+  { bg: colors.purpleSoft, fg: colors.purple },
+  { bg: colors.successSoft, fg: colors.success },
+];
+
+const daysText = (n: number) => (n === 1 ? '1 day' : `${n} days`);
+
+function shareText(rx: MyPrescriptionDetail): string {
+  const followUp = rx.followUpDate
+    ? `Follow-up: ${formatShortDate(dateOf(rx.followUpDate))}`
+    : null;
   return [
-    `Prescription ${rx.id} · ${day} ${month}`,
-    `${rx.doctorName} (${rx.department})`,
-    `Diagnosis: ${rx.diagnosis}`,
+    `${['Prescription', rx.rxCode].filter(Boolean).join(' ')} · ${longDate(
+      rx.date,
+    )}`,
+    `${rx.doctor.fullName}${
+      rx.doctor.departmentName ? ` (${rx.doctor.departmentName})` : ''
+    }`,
+    `For ${rx.patient.fullName}`,
+    rx.diagnosis ? `Diagnosis: ${rx.diagnosis}` : null,
     '',
-    ...rx.medicines.map(
-      m =>
-        `• ${m.name}: ${doseCode(m)}, ${
-          m.days
-        } days, ${m.instructions.toLowerCase()}`,
+    ...rx.medicines.map(m =>
+      [
+        `• ${m.displayName}: ${m.frequency}`,
+        daysText(m.durationDays),
+        m.timing?.toLowerCase(),
+        m.instructions,
+      ]
+        .filter(Boolean)
+        .join(', '),
     ),
-    '',
-    ...rx.advice.map(a => `• ${a}`),
-    `${rx.warning.lead} ${rx.warning.text}`,
-  ].join('\n');
+    rx.advice ? `\nAdvice: ${rx.advice}` : null,
+    rx.testsAdvised.length ? `Tests: ${rx.testsAdvised.join(', ')}` : null,
+    followUp,
+  ]
+    .filter(line => line !== null)
+    .join('\n');
 }
 
-export default function PrescriptionScreen({ navigation }: Props) {
+/** Patient: one prescription from a past (or today's) visit. */
+export default function PrescriptionScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const [rx] = useState(getPrescription);
-  const [remindersOn, setRemindersOn] = useState(true);
-  const [taken, setTaken] = useState<DoseTime[]>(['morning']);
+  const { prescriptionId } = route.params;
+  const [load, setLoad] = useState<Load>({ status: 'loading' });
 
-  const visit = new Date(rx.visitDate);
-  const { day, month } = dateParts(visit);
-  const doseGroups = DOSE_TIMES.map(t => ({
-    ...t,
-    medicines: rx.medicines.filter(m => m.doses[t.key] > 0),
-  })).filter(g => g.medicines.length > 0);
-  const takenCount = doseGroups.filter(g => taken.includes(g.key)).length;
+  const fetchRx = useCallback(async () => {
+    setLoad({ status: 'loading' });
+    try {
+      setLoad({ status: 'ready', rx: await getMyPrescription(prescriptionId) });
+    } catch (e) {
+      setLoad({
+        status: 'error',
+        message: userMessage(e, 'Could not load this prescription.'),
+      });
+    }
+  }, [prescriptionId]);
 
-  const toggleTaken = (key: DoseTime) =>
-    setTaken(t => (t.includes(key) ? t.filter(k => k !== key) : [...t, key]));
+  useEffect(() => {
+    fetchRx();
+  }, [fetchRx]);
+
+  const rx = load.status === 'ready' ? load.rx : null;
 
   const share = async () => {
+    if (!rx) {
+      return;
+    }
     try {
       await Share.share({
-        title: `Prescription ${rx.id}`,
+        title: `Prescription ${rx.rxCode ?? ''}`.trim(),
         message: shareText(rx),
       });
     } catch {
@@ -107,22 +122,20 @@ export default function PrescriptionScreen({ navigation }: Props) {
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Pressable
           testID="back"
-          onPress={() => navigation.navigate('Home')}
+          onPress={() => navigation.goBack()}
           hitSlop={12}
           accessibilityRole="button"
-          accessibilityLabel="Back to home"
+          accessibilityLabel="Back"
         >
           <ArrowLeft size={22} color={colors.text} />
         </Pressable>
         <View style={styles.flex}>
-          <Text style={styles.title}>Your prescription</Text>
-          <Text style={styles.subtitle}>
-            {`${
-              isSameDay(visit, new Date())
-                ? "Today's visit"
-                : formatShortDate(visit)
-            } · ${rx.id}`}
-          </Text>
+          <Text style={styles.title}>Prescription</Text>
+          {rx ? (
+            <Text style={styles.subtitle}>
+              {[longDate(rx.date), rx.rxCode].filter(Boolean).join(' · ')}
+            </Text>
+          ) : null}
         </View>
         <Pressable
           testID="download"
@@ -138,185 +151,225 @@ export default function PrescriptionScreen({ navigation }: Props) {
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* Doctor + vitals */}
-        <View style={styles.card}>
-          <View style={styles.doctorRow}>
-            <Avatar name={rx.doctorName} size={48} />
-            <View style={styles.flex}>
-              <Text style={styles.doctorName}>{rx.doctorName}</Text>
-              <Text style={styles.mutedSmall}>
-                {`${rx.department} · ${day} ${month} · Token ${rx.token}`}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.vitalsRow}>
-            <Vital label="Diagnosis" value={rx.diagnosis} />
-            <Vital label="Temp" value={rx.temperature} />
-            <Vital label="BP" value={rx.bloodPressure} />
-          </View>
-        </View>
-
-        {/* Medicines */}
-        <View style={styles.rowBetween}>
-          <Text style={styles.sectionTitle}>
-            {`Medicines (${rx.medicines.length})`}
-          </Text>
-          <Pressable
-            testID="reminders-toggle"
-            onPress={() => setRemindersOn(on => !on)}
-            style={styles.reminderButton}
-            accessibilityRole="switch"
-            accessibilityState={{ checked: remindersOn }}
-            accessibilityLabel="Medicine reminders"
-          >
-            <View style={[styles.track, remindersOn && styles.trackOn]}>
-              <View style={[styles.thumb, remindersOn && styles.thumbOn]} />
-            </View>
-            <Text style={styles.reminderText}>Reminders</Text>
-          </Pressable>
-        </View>
-        {rx.medicines.map(m => (
-          <MedicineCard key={m.id} medicine={m} />
-        ))}
-
-        {/* Today's doses */}
-        <View style={[styles.card, styles.dosesCard]}>
-          <View style={[styles.rowBetween, styles.cardHeader]}>
-            <Text style={styles.cardTitle}>{"Today's doses"}</Text>
-            <Text style={styles.takenCount}>
-              {`${takenCount} of ${doseGroups.length} taken`}
-            </Text>
-          </View>
-          {doseGroups.map(g => {
-            const done = taken.includes(g.key);
-            const names = g.medicines
-              .map(m => (g.medicines.length > 2 ? m.shortName : m.name))
-              .join(', ');
-            return (
-              <Pressable
-                key={g.key}
-                testID={`dose-${g.key}`}
-                onPress={() => toggleTaken(g.key)}
-                style={[styles.doseRow, done && styles.doseRowDone]}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: done }}
-              >
-                <View style={[styles.checkbox, done && styles.checkboxDone]}>
-                  {done ? (
-                    <Check size={14} color={colors.white} strokeWidth={3} />
-                  ) : null}
-                </View>
-                <View style={styles.flex}>
-                  <Text style={styles.doseTitle}>
-                    {`${g.time} · ${g.label}`}
-                  </Text>
-                  <Text style={styles.mutedSmall} numberOfLines={1}>
-                    {names}
-                  </Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* Advice */}
-        <View style={styles.card}>
-          <Text style={[styles.cardTitle, styles.cardHeader]}>
-            {"Doctor's advice"}
-          </Text>
-          {rx.advice.map(item => (
-            <View key={item} style={styles.bulletRow}>
-              <Text style={styles.bullet}>•</Text>
-              <Text style={styles.adviceText}>{item}</Text>
-            </View>
-          ))}
-          <View style={styles.warningBox}>
-            <TriangleAlert size={18} color={colors.alertLabel} />
-            <Text style={styles.warningText}>
-              <Text style={styles.warningLead}>{`${rx.warning.lead} `}</Text>
-              {rx.warning.text}
-            </Text>
-          </View>
-        </View>
-
-        {/* Follow-up */}
-        {rx.followUp ? (
-          <FollowUpCard
-            date={new Date(rx.followUp.date)}
-            note={rx.followUp.note}
+      {load.status === 'loading' ? (
+        <LoadingView label="Loading prescription…" />
+      ) : load.status === 'error' ? (
+        <ErrorView message={load.message} onRetry={fetchRx} />
+      ) : (
+        <>
+          <PrescriptionBody
+            rx={load.rx}
             onBook={() => navigation.navigate('BookAppointment')}
           />
-        ) : null}
-      </ScrollView>
-
-      {/* Actions */}
-      <View style={styles.footer}>
-        <Pressable
-          testID="share"
-          onPress={share}
-          style={({ pressed }) => [
-            styles.footerButton,
-            styles.shareButton,
-            pressed && styles.pressed,
-          ]}
-          accessibilityRole="button"
-        >
-          <Share2 size={18} color={colors.text} />
-          <Text style={styles.shareText}>Share</Text>
-        </Pressable>
-        <Pressable
-          testID="pharmacy"
-          onPress={() => comingSoon('Get from pharmacy')}
-          style={({ pressed }) => [
-            styles.footerButton,
-            styles.pharmacyButton,
-            pressed && styles.pressed,
-          ]}
-          accessibilityRole="button"
-        >
-          <Text style={styles.pharmacyText}>Get from pharmacy</Text>
-        </Pressable>
-      </View>
+          {/* Actions */}
+          <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+            <Pressable
+              testID="share"
+              onPress={share}
+              style={({ pressed }) => [
+                styles.footerButton,
+                styles.shareButton,
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <Share2 size={18} color={colors.text} />
+              <Text style={styles.shareText}>Share</Text>
+            </Pressable>
+            <Pressable
+              testID="pharmacy"
+              onPress={() => comingSoon('Get from pharmacy')}
+              style={({ pressed }) => [
+                styles.footerButton,
+                styles.pharmacyButton,
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.pharmacyText}>Get from pharmacy</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
     </View>
   );
 }
 
-function Vital({ label, value }: { label: string; value: string }) {
+function PrescriptionBody({
+  rx,
+  onBook,
+}: {
+  rx: MyPrescriptionDetail;
+  onBook: () => void;
+}) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const lastDay = lastDoseDay(rx);
+  const ongoing = isOngoing(rx, now);
+  const followUp = rx.followUpDate ? dateOf(rx.followUpDate) : null;
+  const temp = rx.vitals?.temperatureF;
+
+  return (
+    <ScrollView contentContainerStyle={styles.content}>
+      {/* Doctor + visit */}
+      <View testID="rx-visit" style={styles.card}>
+        <View style={styles.doctorRow}>
+          <Avatar name={rx.doctor.fullName} size={48} />
+          <View style={styles.flex}>
+            <Text style={styles.doctorName}>{rx.doctor.fullName}</Text>
+            <Text style={styles.mutedSmall}>
+              {[rx.doctor.departmentName, rx.doctor.qualification]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
+            <Text style={styles.mutedSmall}>
+              {[rx.facility.name, rx.token ? `Token ${rx.token}` : null]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.vitalsRow}>
+          <Vital label="Diagnosis" value={rx.diagnosis ?? '—'} />
+          <Vital
+            label="Temp"
+            value={temp != null ? `${temp}°F` : '—'}
+            alert={rx.vitals?.hasFever}
+          />
+          <Vital label="BP" value={rx.vitals?.bp ?? '—'} />
+        </View>
+        {rx.complaint ? (
+          <Text style={styles.visitFor}>
+            <Text style={styles.visitForLabel}>Visit for </Text>
+            {rx.complaint}
+          </Text>
+        ) : null}
+        <Text style={styles.visitFor}>
+          <Text style={styles.visitForLabel}>Patient </Text>
+          {`${rx.patient.fullName} · ${rx.patient.patientCode}`}
+        </Text>
+      </View>
+
+      {/* Medicines */}
+      <View style={styles.rowBetween}>
+        <Text style={styles.sectionTitle}>
+          {`Medicines (${rx.medicines.length})`}
+        </Text>
+        {lastDay ? (
+          <View
+            testID="course-status"
+            style={[styles.course, ongoing && styles.courseOngoing]}
+          >
+            <Text
+              style={[styles.courseText, ongoing && styles.courseTextOngoing]}
+            >
+              {ongoing
+                ? `Ongoing · till ${formatShortDate(lastDay)}`
+                : `Course ended ${formatShortDate(lastDay)}`}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      {rx.medicines.length === 0 ? (
+        <View style={styles.card}>
+          <Text style={styles.mutedSmall}>
+            No medicines were prescribed at this visit.
+          </Text>
+        </View>
+      ) : (
+        rx.medicines.map((m, i) => (
+          <MedicineCard key={m.id} medicine={m} index={i} />
+        ))
+      )}
+
+      {/* Advice + tests */}
+      {rx.advice || rx.testsAdvised.length > 0 ? (
+        <View testID="rx-advice" style={styles.card}>
+          <Text style={[styles.cardTitle, styles.cardHeader]}>
+            {"Doctor's advice"}
+          </Text>
+          {rx.advice ? (
+            <Text style={styles.adviceText}>{rx.advice}</Text>
+          ) : null}
+          {rx.testsAdvised.length > 0 ? (
+            <>
+              <Text style={styles.testsTitle}>Tests advised</Text>
+              {rx.testsAdvised.map(test => (
+                <View key={test} style={styles.bulletRow}>
+                  <Text style={styles.bullet}>•</Text>
+                  <Text style={styles.adviceText}>{test}</Text>
+                </View>
+              ))}
+            </>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Follow-up, while it is still ahead */}
+      {followUp && followUp.getTime() >= today.getTime() ? (
+        <FollowUpCard
+          date={followUp}
+          note={`Book your visit with ${rx.doctor.fullName}`}
+          onBook={onBook}
+        />
+      ) : null}
+    </ScrollView>
+  );
+}
+
+function Vital({
+  label,
+  value,
+  alert = false,
+}: {
+  label: string;
+  value: string;
+  alert?: boolean;
+}) {
   return (
     <View style={styles.vital}>
       <Text style={styles.vitalLabel}>{label}</Text>
-      <Text style={styles.vitalValue} numberOfLines={1}>
+      <Text
+        style={[styles.vitalValue, alert && styles.alert]}
+        numberOfLines={2}
+      >
         {value}
       </Text>
     </View>
   );
 }
 
-function MedicineCard({ medicine: m }: { medicine: PrescribedMedicine }) {
-  const tint = TINTS[m.tint];
+function MedicineCard({
+  medicine: m,
+  index,
+}: {
+  medicine: PrescriptionItem;
+  index: number;
+}) {
+  const tint = TINTS[index % TINTS.length];
+  const doses = parseFrequency(m.frequency);
+  const detail = [m.form, m.instructions].filter(Boolean).join(' · ');
   return (
-    <View style={styles.card}>
+    <View testID={`medicine-${index}`} style={styles.card}>
       <View style={styles.medicineHeader}>
         <View style={[styles.medicineIcon, { backgroundColor: tint.bg }]}>
           <Pill size={20} color={tint.fg} />
         </View>
         <View style={styles.flex}>
-          <Text style={styles.medicineName}>{m.name}</Text>
-          <Text style={styles.mutedSmall}>{m.detail}</Text>
+          <Text style={styles.medicineName}>{m.displayName}</Text>
+          {detail ? <Text style={styles.mutedSmall}>{detail}</Text> : null}
         </View>
         <View style={styles.medicineDuration}>
-          <Text style={styles.medicineDays}>{`${m.days} days`}</Text>
-          <Text style={styles.mutedTiny}>{m.instructions}</Text>
+          <Text style={styles.medicineDays}>{daysText(m.durationDays)}</Text>
+          {m.timing ? <Text style={styles.mutedTiny}>{m.timing}</Text> : null}
         </View>
       </View>
       <View style={styles.doseTiles}>
-        {DOSE_TIMES.map(t => {
-          const count = m.doses[t.key];
-          const active = count > 0;
+        {DOSE_TIMES.map((label, i) => {
+          const active = doses[i] > 0;
           return (
             <View
-              key={t.key}
+              key={label}
               style={[styles.doseTile, active && styles.doseTileActive]}
             >
               <Text
@@ -325,7 +378,7 @@ function MedicineCard({ medicine: m }: { medicine: PrescribedMedicine }) {
                   active && styles.doseTileTextActive,
                 ]}
               >
-                {t.label}
+                {label}
               </Text>
               <Text
                 style={[
@@ -333,7 +386,7 @@ function MedicineCard({ medicine: m }: { medicine: PrescribedMedicine }) {
                   active && styles.doseTileTextActive,
                 ]}
               >
-                {active ? String(count) : '—'}
+                {active ? doseLabel(doses[i]) : '—'}
               </Text>
             </View>
           );
@@ -354,7 +407,7 @@ function FollowUpCard({
 }) {
   const { weekday, day, month } = dateParts(date);
   return (
-    <View style={styles.followUpCard}>
+    <View testID="follow-up" style={styles.followUpCard}>
       <View style={styles.followUpDate}>
         <Text style={styles.followUpSmall}>{weekday.toUpperCase()}</Text>
         <Text style={styles.followUpDay}>{day}</Text>
@@ -425,13 +478,14 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: 16,
   },
-  cardHeader: { marginBottom: 12 },
+  cardHeader: { marginBottom: 8 },
   cardTitle: { fontSize: 17, fontWeight: '700', color: colors.navy },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.navy },
   mutedSmall: { fontSize: 13, color: colors.muted },
   mutedTiny: { fontSize: 12, color: colors.muted },
+  alert: { color: colors.alertLabel },
 
-  // Doctor
+  // Doctor + visit
   doctorRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   doctorName: { fontSize: 17, fontWeight: '700', color: colors.text },
   vitalsRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
@@ -449,35 +503,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
   },
+  visitFor: { marginTop: 10, fontSize: 14, color: colors.text },
+  visitForLabel: { color: colors.muted },
 
-  // Reminders toggle
-  reminderButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+  // Course
+  course: {
+    borderRadius: 999,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 4,
+    backgroundColor: colors.neutralSoft,
   },
-  track: {
-    width: 38,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: colors.border,
-    padding: 2,
-  },
-  trackOn: { backgroundColor: colors.primary },
-  thumb: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: colors.white,
-  },
-  thumbOn: { alignSelf: 'flex-end' },
-  reminderText: { fontSize: 14, fontWeight: '500', color: colors.text },
+  courseOngoing: { backgroundColor: colors.successSoft },
+  courseText: { fontSize: 12, fontWeight: '700', color: colors.neutralText },
+  courseTextOngoing: { color: colors.successText },
 
   // Medicine
   medicineHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -509,55 +547,17 @@ const styles = StyleSheet.create({
   },
   doseTileTextActive: { color: colors.primary },
 
-  // Today's doses
-  dosesCard: { borderColor: colors.primaryBorder },
-  takenCount: { fontSize: 13, fontWeight: '600', color: colors.successText },
-  doseRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 8,
-  },
-  doseRowDone: {
-    backgroundColor: colors.successSoft,
-    borderColor: colors.successBorder,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxDone: {
-    backgroundColor: colors.success,
-    borderColor: colors.success,
-  },
-  doseTitle: { fontSize: 15, fontWeight: '700', color: colors.text },
-
   // Advice
-  bulletRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
-  bullet: { fontSize: 15, color: colors.text },
-  adviceText: { flex: 1, fontSize: 15, color: colors.text },
-  warningBox: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
-    borderRadius: 10,
-    backgroundColor: colors.alertSoft,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  adviceText: { flex: 1, fontSize: 15, lineHeight: 21, color: colors.text },
+  testsTitle: {
+    marginTop: 12,
+    marginBottom: 6,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.navy,
   },
-  warningText: { flex: 1, fontSize: 14, color: colors.alertText },
-  warningLead: { fontWeight: '700' },
+  bulletRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  bullet: { fontSize: 15, color: colors.text },
 
   // Follow-up
   followUpCard: {
@@ -594,7 +594,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,

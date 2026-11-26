@@ -267,6 +267,7 @@ export default function DoctorDashboardScreen({ navigation }: Props) {
               })
             }
             onComplete={setCompleting}
+            onCheckIn={entry => run(() => queueApi.checkIn(entry.id))}
             onSeeAll={() => navigation.navigate('Patients')}
           />
         </ScrollView>
@@ -292,6 +293,7 @@ function Dashboard({
   onStart,
   onPrescribe,
   onComplete,
+  onCheckIn,
   onSeeAll,
 }: {
   queue: QueueSnapshot;
@@ -303,6 +305,8 @@ function Dashboard({
   onStart: (card: QueueCard) => void;
   onPrescribe: (card: QueueCard) => void;
   onComplete: (card: QueueCard) => void;
+  /** Not arrived yet → waiting (a late patient goes where the clinic's rule says). */
+  onCheckIn: (entry: queueApi.QueueLineEntry) => void;
   onSeeAll: () => void;
 }) {
   const { doctor, stats, nowServing: patient, line, late } = queue;
@@ -562,7 +566,14 @@ function Dashboard({
       ) : (
         line
           .slice(0, UP_NEXT_LIMIT)
-          .map(entry => <QueueItem key={entry.id} entry={entry} />)
+          .map(entry => (
+            <QueueItem
+              key={entry.id}
+              entry={entry}
+              busy={busy}
+              onCheckIn={() => onCheckIn(entry)}
+            />
+          ))
       )}
     </>
   );
@@ -761,7 +772,15 @@ const BADGES: Record<BadgeKind, { label: string; bg: string; fg: string }> = {
   },
 };
 
-function QueueItem({ entry }: { entry: queueApi.QueueLineEntry }) {
+function QueueItem({
+  entry,
+  busy,
+  onCheckIn,
+}: {
+  entry: queueApi.QueueLineEntry;
+  busy: boolean;
+  onCheckIn: () => void;
+}) {
   const kind: BadgeKind = !entry.arrived
     ? 'not_arrived'
     : entry.position === 1
@@ -788,11 +807,30 @@ function QueueItem({ entry }: { entry: queueApi.QueueLineEntry }) {
             .join(' · ')}
         </Text>
       </View>
-      <View style={[styles.badge, { backgroundColor: badge.bg }]}>
-        <Text style={[styles.badgeText, { color: badge.fg }]}>
-          {badge.label}
-        </Text>
-      </View>
+      {kind === 'not_arrived' ? (
+        <Pressable
+          testID={`check-in-${entry.id}`}
+          onPress={onCheckIn}
+          disabled={busy}
+          style={({ pressed }) => [
+            styles.checkInButton,
+            (pressed || busy) && styles.pressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={`Check in ${entry.token?.label ?? ''} ${
+            entry.patient.fullName
+          }`}
+          accessibilityState={{ disabled: busy }}
+        >
+          <Text style={styles.checkInText}>Check in</Text>
+        </Pressable>
+      ) : (
+        <View style={[styles.badge, { backgroundColor: badge.bg }]}>
+          <Text style={[styles.badgeText, { color: badge.fg }]}>
+            {badge.label}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -1000,6 +1038,18 @@ const styles = StyleSheet.create({
   queueName: { fontSize: 15, fontWeight: '700', color: colors.text },
   badge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   badgeText: { fontSize: 12, fontWeight: '700' },
+  // Same look as the desk's "Check in" (assistant Tokens screen).
+  checkInButton: {
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkInText: { fontSize: 14, fontWeight: '600', color: colors.primary },
   roomNote: { fontSize: 13, color: colors.white, opacity: 0.9 },
 
   // Finish visit sheet

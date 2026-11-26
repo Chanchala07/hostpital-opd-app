@@ -12,12 +12,17 @@ import type { User } from '../src/auth/types';
 import * as push from '../src/notifications/push';
 import { unmountAll } from '../test-utils/render';
 
-jest.mock('../src/api/auth', () => ({ login: jest.fn(), logout: jest.fn() }));
+jest.mock('../src/api/auth', () => ({
+  login: jest.fn(),
+  logout: jest.fn(),
+  registerPatient: jest.fn(),
+}));
 jest.mock('../src/api/client', () => ({ onSessionExpired: jest.fn() }));
 jest.mock('../src/notifications/push', () => ({ stopPush: jest.fn() }));
 
 const login = authApi.login as jest.Mock;
 const logout = authApi.logout as jest.Mock;
+const registerPatient = authApi.registerPatient as jest.Mock;
 const stopPush = push.stopPush as jest.Mock;
 const onSessionExpired = client.onSessionExpired as jest.Mock;
 
@@ -102,6 +107,44 @@ test('sign-out stops push to this phone before the session is revoked', async ()
     login.mock.invocationCallOrder[1],
   );
   expect(signedIn).toBe(true);
+  await ReactTestRenderer.act(async () => renderer.unmount());
+});
+
+test('a new patient is signed in once their account is created', async () => {
+  const ritu: User = {
+    id: '40',
+    name: 'Ritu Sharma',
+    email: null,
+    mobile: '9876543210',
+    role: 'patient',
+  };
+  registerPatient.mockResolvedValue(ritu);
+  const account = {
+    fullName: 'Ritu Sharma',
+    phone: '9876543210',
+    dateOfBirth: '1990-08-15',
+    gender: 'female' as const,
+    email: null,
+    password: 'Sunrise@2026',
+  };
+  const renderer = await renderAuth();
+  await act(() => auth.signUp(account));
+  expect(registerPatient).toHaveBeenCalledWith(account);
+  expect(auth.user).toEqual(ritu);
+
+  // A failed sign-up leaves the app signed out and passes the error on.
+  await act(() => auth.signOut());
+  registerPatient.mockRejectedValue(
+    new Error('This number already has an account.'),
+  );
+  let failure: unknown;
+  await act(() =>
+    auth.signUp(account).catch(e => {
+      failure = e;
+    }),
+  );
+  expect(failure).toEqual(new Error('This number already has an account.'));
+  expect(auth.user).toBeNull();
   await ReactTestRenderer.act(async () => renderer.unmount());
 });
 

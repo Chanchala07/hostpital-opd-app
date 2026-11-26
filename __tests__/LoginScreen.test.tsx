@@ -14,6 +14,7 @@ const metrics = {
 
 async function renderLogin() {
   const onSignIn = jest.fn();
+  const onCreateAccount = jest.fn();
   let renderer!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {
     renderer = ReactTestRenderer.create(
@@ -22,7 +23,7 @@ async function renderLogin() {
           onSignIn={onSignIn}
           onForgotPassword={jest.fn()}
           onSignInWithOtp={jest.fn()}
-          onCreateAccount={jest.fn()}
+          onCreateAccount={onCreateAccount}
         />
       </SafeAreaProvider>,
     );
@@ -33,39 +34,50 @@ async function renderLogin() {
     ReactTestRenderer.act(async () => {
       fn();
     });
-  return { onSignIn, byId, text, act };
+  return { onSignIn, onCreateAccount, byId, text, act };
 }
 
-test('has no role selector or "keep me signed in" option', async () => {
+test('shows the app name, with no role selector or "keep me signed in"', async () => {
   const { text } = await renderLogin();
-  expect(text()).not.toMatch(/Sign in as|Patient|Doctor|Assistant/);
+  expect(text()).toContain('"Doctors Bookings"');
+  expect(text()).not.toContain('SWAP INFOTECH');
+  const withoutBrand = text().replace('Doctors Bookings', '');
+  expect(withoutBrand).not.toMatch(/Sign in as|Patient|Doctor|Assistant/);
   expect(text()).not.toContain('Keep me signed in');
 });
 
-test('asks for email, not a mobile number', async () => {
+test('"New patient? Create account" opens sign-up', async () => {
+  const { onCreateAccount, byId, text, act } = await renderLogin();
+  expect(text()).toContain('New patient? ');
+  expect(text()).toContain('Create account');
+  await act(() => byId('create-account-link').props.onPress());
+  expect(onCreateAccount).toHaveBeenCalledTimes(1);
+});
+
+test('asks for a mobile number, not an email', async () => {
   const { byId, text } = await renderLogin();
-  expect(byId('mobile-input')).toBeUndefined();
-  expect(text()).not.toMatch(/Mobile number|\+91/);
-  expect(text()).toContain('Email');
-  expect(byId('email-input').props.keyboardType).toBe('email-address');
-  expect(byId('email-input').props.autoCapitalize).toBe('none');
+  expect(byId('email-input')).toBeUndefined();
+  expect(text()).not.toContain('"Email"');
+  expect(text()).toContain('Mobile number');
+  expect(text()).toContain('+91');
+  expect(byId('mobile-input').props.keyboardType).toBe('phone-pad');
 });
 
-test('rejects an invalid email', async () => {
+test('rejects something that is not a mobile number', async () => {
   const { onSignIn, byId, text, act } = await renderLogin();
-  await act(() => byId('email-input').props.onChangeText('sarah@clinic'));
   await act(() => byId('password-input').props.onChangeText('secret'));
-  await act(() => byId('sign-in-button').props.onPress());
+  for (const value of ['sarah@clinic.com', '98765', '1234567890']) {
+    await act(() => byId('mobile-input').props.onChangeText(value));
+    await act(() => byId('sign-in-button').props.onPress());
+    expect(text()).toContain('Enter your 10-digit mobile number.');
+  }
   expect(onSignIn).not.toHaveBeenCalled();
-  expect(text()).toContain('Enter a valid email address.');
 });
 
-test('signs in with a valid email and password', async () => {
+test('signs in with the 10-digit mobile number and password', async () => {
   const { onSignIn, byId, act } = await renderLogin();
-  await act(() =>
-    byId('email-input').props.onChangeText('  Doctor@OPD.example '),
-  );
+  await act(() => byId('mobile-input').props.onChangeText(' +91 98765-06543 '));
   await act(() => byId('password-input').props.onChangeText('secret'));
   await act(() => byId('sign-in-button').props.onPress());
-  expect(onSignIn).toHaveBeenCalledWith('doctor@opd.example', 'secret');
+  expect(onSignIn).toHaveBeenCalledWith('9876506543', 'secret');
 });

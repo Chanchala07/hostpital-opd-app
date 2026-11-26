@@ -14,6 +14,7 @@ import {
   NotificationsProvider,
   type OpenableNotification,
 } from '../notifications/NotificationsContext';
+import CreateAccountScreen from '../screens/auth/CreateAccountScreen';
 import LoginScreen from '../screens/auth/LoginScreen';
 import AddPatientScreen from '../screens/common/AddPatientScreen';
 import AddStaffScreen from '../screens/doctor/AddStaffScreen';
@@ -22,6 +23,7 @@ import VisitDoneScreen from '../screens/doctor/VisitDoneScreen';
 import ProfileScreen from '../screens/common/ProfileScreen';
 import BookAppointmentScreen from '../screens/patient/BookAppointmentScreen';
 import MyAppointmentsScreen from '../screens/patient/MyAppointmentsScreen';
+import PrescriptionScreen from '../screens/patient/PrescriptionScreen';
 import MyTokenScreen from '../screens/patient/MyTokenScreen';
 import { comingSoon } from '../utils/format';
 import AssistantTabs from './AssistantTabs';
@@ -72,14 +74,32 @@ function openNotification(user: User | null, n: OpenableNotification) {
   }
 }
 
-function LoginRoute() {
+function LoginRoute({
+  navigation,
+}: NativeStackScreenProps<RootStackParamList, 'Login'>) {
   const { signIn } = useAuth();
   return (
     <LoginScreen
       onSignIn={signIn}
       onForgotPassword={() => comingSoon('Forgot password')}
       onSignInWithOtp={() => comingSoon('Sign in with OTP')}
-      onCreateAccount={() => comingSoon('Create account')}
+      onCreateAccount={() => navigation.navigate('CreateAccount')}
+    />
+  );
+}
+
+/** Once the account exists the user is signed in, so the patient app opens. */
+function CreateAccountRoute({
+  navigation,
+}: NativeStackScreenProps<RootStackParamList, 'CreateAccount'>) {
+  const { signUp } = useAuth();
+  return (
+    <CreateAccountScreen
+      onSubmit={signUp}
+      onBack={() => navigation.goBack()}
+      onSignIn={() => navigation.goBack()}
+      onOpenTerms={() => comingSoon('Terms')}
+      onOpenPrivacy={() => comingSoon('Privacy Policy')}
     />
   );
 }
@@ -134,7 +154,7 @@ function AddStaffRoute({
           .join(' and ');
         Alert.alert(
           role === 'doctor' ? 'Doctor added' : 'Assistant added',
-          `${staff.fullName} will get a link by ${via} to set a password and sign in.`,
+          `${staff.fullName} will get a link by ${via} to set a password, then sign in with their mobile number.`,
         );
       }}
     />
@@ -156,7 +176,13 @@ export default function RootNavigator() {
       >
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {user == null ? (
-            <Stack.Screen name="Login" component={LoginRoute} />
+            <>
+              <Stack.Screen name="Login" component={LoginRoute} />
+              <Stack.Screen
+                name="CreateAccount"
+                component={CreateAccountRoute}
+              />
+            </>
           ) : (
             <>
               {user.role === 'doctor' ? (
@@ -183,6 +209,10 @@ export default function RootNavigator() {
                   <Stack.Screen
                     name="MyAppointments"
                     component={MyAppointmentsScreen}
+                  />
+                  <Stack.Screen
+                    name="Prescription"
+                    component={PrescriptionScreen}
                   />
                 </>
               )}

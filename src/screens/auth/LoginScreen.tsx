@@ -13,13 +13,19 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../theme/colors';
-import { isValidEmail } from '../../utils/validation';
+
+/** "98765 43210", "+91 98765-43210" → "9876543210"; null if not a mobile number. */
+const toMobile = (value: string) => {
+  const digits = value.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
+  return /^[6-9]\d{9}$/.test(digits) ? digits : null;
+};
 
 type Props = {
   /** Resolves when signed in; throw an Error to show its message. */
-  onSignIn: (email: string, password: string) => Promise<void> | void;
+  onSignIn: (mobile: string, password: string) => Promise<void> | void;
   onForgotPassword: () => void;
   onSignInWithOtp: () => void;
+  /** "New patient? Create account" */
   onCreateAccount: () => void;
 };
 
@@ -31,7 +37,7 @@ export default function LoginScreen({
 }: Props) {
   const insets = useSafeAreaInsets();
   const passwordRef = useRef<TextInputInstance>(null);
-  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,8 +47,9 @@ export default function LoginScreen({
     if (submitting) {
       return;
     }
-    if (!isValidEmail(email)) {
-      setError('Enter a valid email address.');
+    const mobile = toMobile(phone);
+    if (!mobile) {
+      setError('Enter your 10-digit mobile number.');
       return;
     }
     if (!password) {
@@ -52,7 +59,7 @@ export default function LoginScreen({
     setError(null);
     setSubmitting(true);
     try {
-      await onSignIn(email.trim().toLowerCase(), password);
+      await onSignIn(mobile, password);
     } catch (e) {
       setError(
         e instanceof Error ? e.message : 'Sign in failed. Please try again.',
@@ -81,7 +88,7 @@ export default function LoginScreen({
               <View style={styles.plusH} />
               <View style={styles.plusV} />
             </View>
-            <Text style={styles.brandName}>SWAP INFOTECH</Text>
+            <Text style={styles.brandName}>Doctors Bookings</Text>
           </View>
           <Text style={styles.title}>Welcome back</Text>
           <Text style={styles.subtitle}>
@@ -91,27 +98,29 @@ export default function LoginScreen({
 
         <View style={styles.form}>
           <View style={styles.labelRow}>
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>Mobile number</Text>
           </View>
-          <TextInput
-            testID="email-input"
-            style={styles.input}
-            value={email}
-            onChangeText={text => {
-              setEmail(text);
-              setError(null);
-            }}
-            placeholder="name@example.com"
-            placeholderTextColor={colors.placeholder}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="email"
-            textContentType="emailAddress"
-            maxLength={100}
-            returnKeyType="next"
-            onSubmitEditing={() => passwordRef.current?.focus()}
-          />
+          <View style={styles.inputBox}>
+            <Text style={styles.prefixText}>+91</Text>
+            <TextInput
+              testID="mobile-input"
+              style={styles.boxInput}
+              value={phone}
+              onChangeText={text => {
+                setPhone(text);
+                setError(null);
+              }}
+              placeholder="98765 43210"
+              placeholderTextColor={colors.placeholder}
+              keyboardType="phone-pad"
+              autoCorrect={false}
+              autoComplete="tel"
+              textContentType="telephoneNumber"
+              maxLength={16}
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
+            />
+          </View>
 
           <View style={[styles.labelRow, styles.sectionGap]}>
             <Text style={styles.label}>Password</Text>
@@ -196,6 +205,7 @@ export default function LoginScreen({
           <View style={styles.footer}>
             <Text style={styles.footerText}>New patient? </Text>
             <Pressable
+              testID="create-account-link"
               onPress={onCreateAccount}
               hitSlop={8}
               accessibilityRole="link"
@@ -279,12 +289,27 @@ const styles = StyleSheet.create({
   },
   sectionGap: { marginTop: 20 },
   label: { fontSize: 13, fontWeight: '600', color: colors.text },
-  input: {
+  inputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
     height: FIELD_HEIGHT,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: RADIUS,
     paddingHorizontal: 14,
+  },
+  prefixText: {
+    marginRight: 10,
+    paddingRight: 10,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+    fontSize: 15,
+    color: colors.muted,
+  },
+  boxInput: {
+    flex: 1,
+    height: '100%',
+    paddingVertical: 0,
     fontSize: 15,
     color: colors.text,
   },

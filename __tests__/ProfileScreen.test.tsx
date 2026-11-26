@@ -147,7 +147,9 @@ async function renderProfile(
   await ReactTestRenderer.act(async () => {
     renderer = ReactTestRenderer.create(
       <SafeAreaProvider initialMetrics={metrics}>
-        <AuthContext.Provider value={{ user, signIn: jest.fn(), signOut }}>
+        <AuthContext.Provider
+          value={{ user, signIn: jest.fn(), signUp: jest.fn(), signOut }}
+        >
           <ProfileScreen {...options} />
         </AuthContext.Provider>
       </SafeAreaProvider>,

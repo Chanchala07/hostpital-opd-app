@@ -2,9 +2,13 @@
  * @format
  */
 
-import { login, logout } from '../src/api/auth';
+import { login, logout, registerPatient } from '../src/api/auth';
 import { registerDevice, removeDevice } from '../src/api/devices';
 import { getVisit, savePrescription } from '../src/api/visits';
+import {
+  getMyPrescription,
+  listMyPrescriptions,
+} from '../src/api/myPrescriptions';
 import {
   ApiError,
   apiRequest,
@@ -70,7 +74,7 @@ const SARAH = {
 describe('login', () => {
   test('a doctor signs in with the staff API and gets the doctor role', async () => {
     replies.push(ok({ ...TOKENS, user: SARAH }));
-    const user = await login('sarah.johnson@swapinfotech.com', 'Doctor@123');
+    const user = await login('9876506543', 'Doctor@123');
 
     expect(user).toEqual({
       id: '2',
@@ -82,7 +86,7 @@ describe('login', () => {
     expect(calls[0].url).toBe(`${BASE}/auth/login`);
     expect(calls[0].init.method).toBe('POST');
     expect(bodyOf(0)).toEqual({
-      login: 'sarah.johnson@swapinfotech.com',
+      login: '9876506543',
       password: 'Doctor@123',
       deviceName: expect.stringMatching(/^OPD app · /),
     });
@@ -100,7 +104,7 @@ describe('login', () => {
         user: { ...SARAH, id: 7, role: 'assistant', fullName: 'Neha Patil' },
       }),
     );
-    const user = await login('neha.patil@swapinfotech.com', 'Assistant@123');
+    const user = await login('9000003301', 'Assistant@123');
     expect(user).toMatchObject({
       id: '7',
       name: 'Neha Patil',
@@ -123,11 +127,11 @@ describe('login', () => {
         profiles: [],
       }),
     );
-    const user = await login('ritu@gmail.com', '123456');
+    const user = await login('9876543210', '123456');
     expect(user).toMatchObject({ name: 'Ritu Sharma', role: 'patient' });
     expect(calls[1].url).toBe(`${BASE}/auth/patient/login`);
     expect(bodyOf(1)).toMatchObject({
-      email: 'ritu@gmail.com',
+      phone: '9876543210',
       password: '123456',
     });
   });
@@ -137,17 +141,17 @@ describe('login', () => {
       fail(
         401,
         'INVALID_CREDENTIALS',
-        'Email / employee ID or password is incorrect',
+        'Mobile number or password is incorrect',
       ),
       fail(
         401,
         'INVALID_CREDENTIALS',
-        'Mobile number / email or password is incorrect',
+        'Mobile number or password is incorrect',
       ),
     );
-    await expect(
-      login('sarah.johnson@swapinfotech.com', 'nope'),
-    ).rejects.toThrow('Email or password is incorrect.');
+    await expect(login('9876506543', 'nope')).rejects.toThrow(
+      'Mobile number or password is incorrect.',
+    );
     expect(getSession()).toBeNull();
   });
 
@@ -159,7 +163,7 @@ describe('login', () => {
         'Set your password using the invite link first',
       ),
     );
-    await expect(login('new.doctor@swapinfotech.com', 'x')).rejects.toThrow(
+    await expect(login('9876500001', 'x')).rejects.toThrow(
       'Set your password using the invite link first',
     );
     expect(calls).toHaveLength(1);
@@ -170,9 +174,7 @@ describe('login', () => {
       ok({ ...TOKENS, user: { ...SARAH, role: 'facility_admin' } }),
       ok(undefined),
     );
-    await expect(login('meera.kulkarni@swapinfotech.com', 'x')).rejects.toThrow(
-      /admin portal/,
-    );
+    await expect(login('9000001101', 'x')).rejects.toThrow(/admin portal/);
     expect(calls[1].url).toBe(`${BASE}/auth/logout`);
     expect(bodyOf(1)).toEqual({ refreshToken: 'refresh-1' });
     expect(getSession()).toBeNull();
@@ -180,10 +182,102 @@ describe('login', () => {
 
   test('no connection gives a friendly message', async () => {
     replies.push(new TypeError('Network request failed'));
-    const error = await login('a@b.com', 'x').catch(e => e);
+    const error = await login('9876500002', 'x').catch(e => e);
     expect(error).toBeInstanceOf(ApiError);
     expect(error.code).toBe('NETWORK_ERROR');
     expect(error.message).toMatch(/Can't reach the server/);
+  });
+});
+
+describe('registerPatient (Create your account)', () => {
+  const ACCOUNT = {
+    fullName: 'Ritu Sharma',
+    phone: '9876543210',
+    dateOfBirth: '1990-08-15',
+    gender: 'female' as const,
+    email: null,
+    password: 'Sunrise@2026',
+  };
+
+  test('creates the account in one call and signs the patient in', async () => {
+    // The server's reply: 201 "Account created", shaped like patient login.
+    replies.push({
+      status: 201,
+      body: {
+        status: 201,
+        success: true,
+        message: 'Account created',
+        data: {
+          ...TOKENS,
+          user: {
+            id: 40,
+            role: 'patient',
+            fullName: 'Ritu Sharma',
+            phone: '+919876543210',
+            email: null,
+          },
+          profiles: [
+            {
+              id: 58,
+              patientCode: 'PT-10058',
+              fullName: 'Ritu Sharma',
+              age: 36,
+              gender: 'female',
+            },
+          ],
+          isNewAccount: true,
+        },
+      },
+    });
+    const user = await registerPatient(ACCOUNT);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(`${BASE}/auth/patient/register`);
+    expect(calls[0].init.method).toBe('POST');
+    expect(headersOf(0).Authorization).toBeUndefined();
+    expect(bodyOf(0)).toEqual({
+      ...ACCOUNT,
+      deviceName: expect.stringContaining('OPD app'),
+    });
+    expect(getSession()).toEqual({
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+    });
+    expect(user).toEqual({
+      id: '40',
+      name: 'Ritu Sharma',
+      email: null,
+      mobile: '9876543210',
+      role: 'patient',
+    });
+  });
+
+  test('a number that already has an account is passed on as ACCOUNT_EXISTS', async () => {
+    replies.push(
+      fail(
+        409,
+        'ACCOUNT_EXISTS',
+        'This mobile number is already registered. Please sign in.',
+      ),
+    );
+    const error = await registerPatient(ACCOUNT).catch(e => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.code).toBe('ACCOUNT_EXISTS');
+    expect(getSession()).toBeNull();
+  });
+
+  test('a server without sign-up yet says so plainly', async () => {
+    replies.push(
+      fail(
+        404,
+        'ROUTE_NOT_FOUND',
+        'Route not found: POST /api/v1/auth/patient/register',
+      ),
+    );
+    const error = await registerPatient(ACCOUNT).catch(e => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.code).toBe('SIGN_UP_UNAVAILABLE');
+    expect(error.message).toMatch(/ask the hospital desk/);
+    expect(getSession()).toBeNull();
   });
 });
 
@@ -291,5 +385,16 @@ describe('prescription', () => {
     expect(calls[1].url).toBe(`${BASE}/visits/77/prescription`);
     expect(calls[1].init.method).toBe('PUT');
     expect(bodyOf(1)).toEqual({ items });
+  });
+
+  test('patient: all my prescriptions, a page at a time, and one of them', async () => {
+    replies.push(ok([{ id: 31 }]), ok({ id: 31 }));
+    const page = await listMyPrescriptions(2);
+    expect(page).toEqual([{ id: 31 }]);
+    expect(calls[0].url).toBe(`${BASE}/me/prescriptions?page=2&limit=20`);
+    expect(calls[0].init.method).toBe('GET');
+
+    await getMyPrescription(31);
+    expect(calls[1].url).toBe(`${BASE}/me/prescriptions/31`);
   });
 });

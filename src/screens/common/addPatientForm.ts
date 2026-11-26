@@ -148,6 +148,24 @@ export function toggleExclusive(
 
 // --- Validation ------------------------------------------------------------
 
+/** What's wrong with a DD/MM/YYYY date of birth, if anything. */
+export function dobError(dob: string, today: Date): string | undefined {
+  const birth = parseDob(dob);
+  if (!dob) {
+    return 'Enter date of birth.';
+  }
+  if (!birth) {
+    return 'Use DD/MM/YYYY, e.g. 15/08/1987.';
+  }
+  if (birth > today) {
+    return "Date of birth can't be in the future.";
+  }
+  if (ageOn(birth, today).years > 120) {
+    return 'Check the year of birth.';
+  }
+  return undefined;
+}
+
 /** Errors for step 1, in on-screen order. */
 export function validatePersonal(
   form: AddPatientForm,
@@ -157,15 +175,9 @@ export function validatePersonal(
   if (form.fullName.trim().length < 2) {
     errors.fullName = "Enter the patient's full name.";
   }
-  const birth = parseDob(form.dob);
-  if (!form.dob) {
-    errors.dob = 'Enter date of birth.';
-  } else if (!birth) {
-    errors.dob = 'Use DD/MM/YYYY, e.g. 15/08/1987.';
-  } else if (birth > today) {
-    errors.dob = "Date of birth can't be in the future.";
-  } else if (ageOn(birth, today).years > 120) {
-    errors.dob = 'Check the year of birth.';
+  const dob = dobError(form.dob, today);
+  if (dob) {
+    errors.dob = dob;
   }
   if (!form.gender) {
     errors.gender = 'Choose a gender.';
